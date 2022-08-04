@@ -102,6 +102,18 @@ inline const Result CollectUserInput(int argc, char **argv, CliConfig& config) {
                 "Step number of frequency channels")
             ->default_val(32);
 
+    // Read target number of integration samples.
+    app
+        .add_option("-I,--number-of-integration-samples", config.integrationSize,
+                "Number of samples per integration")
+            ->default_val(1);
+
+    // Read target number of output polarizations.
+    app
+        .add_option("-P,--number-of-output-polarizations", config.numberOfOutputPolarizations,
+                "Number of output polarizations")
+            ->default_val(1);
+
     try {
         app.parse(argc, argv);
     } catch(const CLI::ParseError &e) {
