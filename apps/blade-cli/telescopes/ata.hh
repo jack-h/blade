@@ -85,7 +85,7 @@ inline const Result SetupAtaModeA(const CliConfig& cliConfig,
         if (runner->dequeue(&batch_idx)) {
             jobs_enqueued--;
             // output is [slowest
-            //  reader.getNumberOfAntennas()
+            //  reader.getNumberOfBeams()
             //  reader.getNumberOfFrequencyChannels()*cliConfig.preBeamformerChannelizerRate (sub-band fine channels)
             //  reader.getNumberOfTimeSamples()/cliConfig.integrationSize (integrated, fine-time samples)
             //  cliConfig.numberOfOutputPolarizations
