@@ -73,7 +73,7 @@ inline const Result SetupAtaModeB(const CliConfig& cliConfig,
                 i, writer_batch_buffers[i]->size(), writer_batch_buffers[i]->size_bytes());
     }
 
-    U64 buffer_idx = 0, job_idx = 0;
+    U64 buffer_idx = 0, job_idx = 0, jobs_enqueued = 0;
     U64 batch_idx, batch_offset;
 
     while (reader.run() == Result::SUCCESS) {
@@ -84,11 +84,13 @@ inline const Result SetupAtaModeB(const CliConfig& cliConfig,
         });
 
         if (res) {
+            jobs_enqueued++;
             job_idx++;
             buffer_idx = job_idx % cliConfig.numberOfWorkers;
         }
 
         if (runner->dequeue(&batch_idx)) {
+            jobs_enqueued--;
             batch_offset = guppi_writer.getInputBatchOffset(
                 batch_idx % guppi_writer.getNumberOfFrequencyChannelBatches()
             );
@@ -105,6 +107,27 @@ inline const Result SetupAtaModeB(const CliConfig& cliConfig,
             }
         }
     }
+
+    while(jobs_enqueued != 0) {
+        if (runner->dequeue(&batch_idx)) {
+            jobs_enqueued--;
+            batch_offset = guppi_writer.getInputBatchOffset(
+                batch_idx % guppi_writer.getNumberOfFrequencyChannelBatches()
+            );
+            memcpy(
+                guppi_writer.getInput().data() + batch_offset,
+                writer_batch_buffers[batch_idx % cliConfig.numberOfWorkers]->data(),
+                writer_batch_buffers[batch_idx % cliConfig.numberOfWorkers]->size_bytes()
+            );
+            if(
+                batch_idx % guppi_writer.getNumberOfFrequencyChannelBatches()
+                == guppi_writer.getNumberOfFrequencyChannelBatches() - 1
+            ) {
+                guppi_writer.write();
+            }
+        }
+    }
+    BL_INFO("Completed {} jobs.", job_idx);
 
     runner.reset();
 
