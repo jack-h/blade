@@ -37,7 +37,7 @@ class BLADE_API Reader : public Module {
     explicit Reader(const Config& config, const Input& input);
 
     constexpr const bool keepRunning() const {
-        return guppiraw_iterate_ntime_remaining(&this->gr_iterate) > this->getNumberOfTimeSamples();
+        return guppiraw_iterate_ntime_remaining(&this->gr_iterate) >= this->getNumberOfTimeSamples();
     }
 
     constexpr const Vector<Device::CPU, OT>& getOutput() {
