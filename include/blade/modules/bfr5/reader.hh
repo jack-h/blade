@@ -52,8 +52,8 @@ class BLADE_API Reader : public Module {
 
     constexpr const LLA getReferencePosition() const {
         return {
-            this->bfr5.tel_info.latitude,
             this->bfr5.tel_info.longitude,
+            this->bfr5.tel_info.latitude,
             this->bfr5.tel_info.altitude
         };
     }
