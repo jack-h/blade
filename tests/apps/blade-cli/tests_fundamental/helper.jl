@@ -144,6 +144,7 @@ function generateTestInputs(
 	rawcallback::Function;
 	
 	directory::String,
+	iterateRawcallback::Bool = false,
 	
 	n_ant::Integer = 4,
 	n_chan_perant::Integer = 128,
@@ -188,6 +189,9 @@ function generateTestInputs(
 	open(@sprintf("%s.0000.raw", stempath), "w") do fio
 		for i in 1:32
 			write(fio, header)
+			if iterateRawcallback && i > 1
+				rawcallback(header, data)
+			end
 			write(fio, data)
 			header["PKTIDX"] += header["PIPERBLK"]
 		end

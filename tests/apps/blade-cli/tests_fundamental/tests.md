@@ -79,3 +79,27 @@ Each test is collapsed below.
 
 
 </details>
+
+
+<details><summary>5. delays Zeros, cal_all Ones, RAW complex Exponential data</summary>
+
+
+<details><summary>GUPPI RAW Input</summary>
+
+![synthetic_test_5](./plots/synthetic_test_5.png)
+
+</details>
+
+<details><summary>Beamformed Output (No upchannelization)</summary>
+
+![synthetic_test_5_c1_beam0](./plots/synthetic_test_5_c1_beam0.png)
+</details>
+
+<details><summary>Beamformed Output (upchannelization rate of 4)</summary>
+
+![synthetic_test_5_c4_beam0](./plots/synthetic_test_5_c4_beam0.png)
+![synthetic_test_5_c4_beam0_zoom](./plots/synthetic_test_5_c4_beam0_zoom.png)
+</details>
+
+
+</details>
