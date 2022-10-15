@@ -1,7 +1,9 @@
 using Blio: GuppiRaw
 using BeamformerRecipes
 using Printf
+using Plots
 
+ENV["GKSwstype"]="nul" # disable plots display
 
 function createHeader(
 	n_ant::Integer,
@@ -92,4 +94,103 @@ function createBeamformerRecipe(
 		beamInfo,
 		delayInfo
 	)
+end
+
+function polMagnitude(data::Array, dims::Integer)
+	reshape(
+		sqrt.(sum(abs.(data) .^ 2, dims=dims)),
+		[dim for (dimidx, dim) in enumerate(size(data)) if dimidx != dims]...
+	)
+end
+
+# function polAngle(data, dims)
+# 	sqrt.(sum(abs.(data) .^ 2), dims=dims)
+# end
+
+function saveInputPlot(
+	rawdata::Array, # complex [pol, time, chan, ant]
+	calcoeff::Array,# complex [ant, pol, chan]
+	title::String,
+	directory="."
+)
+	
+	nants = size(rawdata, 4)
+	plotdata = polMagnitude(rawdata, 1)
+	minval, maxval = min(plotdata...), max(plotdata...)
+
+	l = @layout [grid(2,Integer(ceil(nants/2))) a{0.05w}]
+
+	plot(
+		[
+			plot(
+				heatmap(plotdata[:, :, ant_i], ylabel="Time Samples", colorbar=false, clims=(minval, maxval)),
+				plot(polMagnitude(calcoeff[ant_i, :, :], 1), xlabel="Frequency Channels", ylabel="Magnitude"),
+				layout=grid(2,1,heights=[0.8, 0.2]),
+				size=(1200,1000),
+				link=:x
+			)
+			for ant_i in 1:nants
+		]...,
+		heatmap(LinRange(minval, maxval, 101).*ones(101,1), legend=:none, xticks=:none, yticks=(1:10:101, string.(0:0.1:1))),
+		layout = l,
+		plot_title = title
+	)
+	savefig(joinpath(directory, @sprintf("%s.png", title)))
+end
+
+function generateTestInputs(
+	title::String,
+	bfr5callback::Function,
+	rawcallback::Function;
+	
+	directory::String,
+	
+	n_ant::Integer = 4,
+	n_chan_perant::Integer = 128,
+	n_time::Integer = 16384,
+	n_pols::Integer = 2,
+	n_bits::Integer = 8,
+	n_beam::Integer = 1,
+)
+
+	recipe = createBeamformerRecipe(
+		n_ant,
+		n_chan_perant,
+		n_time,
+		n_pols,
+		n_bits,
+		n_beam
+	)
+	bfr5callback(recipe)
+
+	header = createHeader(
+		n_ant,
+		n_chan_perant,
+		n_time,
+		n_pols,
+		n_bits
+	)
+
+	data = Array(header) # [pol, time, chan, ant]
+	rawcallback(header, data)
+
+	# plot input files
+	saveInputPlot(
+		data,
+		recipe.calinfo.cal_all,
+		title,
+		"./plots"
+	)
+
+	# output input files
+	stempath = joinpath(directory, title)
+	to_hdf5(@sprintf("%s.bfr5", stempath), recipe)
+	open(@sprintf("%s.0000.raw", stempath), "w") do fio
+		for i in 1:32
+			write(fio, header)
+			write(fio, data)
+			header["PKTIDX"] += header["PIPERBLK"]
+		end
+	end
+
 end
