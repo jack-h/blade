@@ -8,6 +8,8 @@ One coherent and one incoherent beam are formed, unless otherwise stated;
 
 The BLADE-CLI is run with `-C 64` to ensure that the coarse frequency-channel stepping works, and with `-T 4096`, unless otherwise stated.
 
+`./build/apps/blade-cli/blade-cli -t VLA -m B --input-type CI8 --output-type F32 -c 32 -C 64 -T 4096 -N 1 /mnt/buf1/mydonsol_blade/basics/synthetic_test_0 /mnt/buf1/mydonsol_blade/basics/synthetic_test_0.bfr5 /mnt/buf1/mydonsol_blade/basics/synthetic_test_0_output`
+
 Each test is collapsed below.
 
 <details><summary>0. cal_all Ones, delays Zeros, RAW signal in [:, :, NCHAN/2, :]</summary>
