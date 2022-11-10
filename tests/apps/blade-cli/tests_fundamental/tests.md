@@ -1,5 +1,19 @@
 # Fundamental Beamforming Tests
 
+## Julia Package Installation
+
+```
+julia 
+	> ]
+	Pkg > add https://github.com/david-macmahon/BeamformerRecipes.jl
+	Pkg > add https://github.com/david-macmahon/Blio.jl
+	Pkg > add Plots
+	Pkg > *backspace*
+	> *Ctrl+d*
+```
+
+## Tests
+
 For the purposes of brevity, the RAW data is spoken about programmatically, with dimensions [fastest=pol, time, chan, slowets=ant], as are the antenna coefficients, with dimensions [fastest=ant, pol, slowest=chan].
 
 The synthesized tests have the following RAW block dimension, unless otherwise stated: [A: 4, F: 128, T: 16384, P: 2, 8bit-complex].
