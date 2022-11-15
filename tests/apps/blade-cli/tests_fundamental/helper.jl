@@ -21,6 +21,8 @@ function createHeader(
 	header["DIRECTIO"]	= 0
 	header["SCHAN"]			= 0
 	header["CHAN_BW"]		= 0.5
+	header["OBSBW"]			= 0.5*n_chan_perant
+	header["TBIN"]			= 1.0/(header["CHAN_BW"]*1e6)
 	header["OBSFREQ"]		= 1500
 	header["SYNCTIME"]	= 0
 	header["PIPERBLK"]	= n_time

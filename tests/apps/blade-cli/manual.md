@@ -1,3 +1,14 @@
+# Installation
+
+- Get meson, specifically: `pip install meson==0.61.3`.
+  This avoids an issue in compiling capnprot for seticore, that occurs with v0.64.0.
+
+- Get BLADE: `git clone https://github.com/MydonSolutions/blade.git && cd blade && git checkout blade-cli-vla`
+
+- Pull all submodules (recursively): `git submodule update --recursive --init`
+
+- Setup the build folder: `CXX=g++-10 meson build`
+
 # Manual BLADE-cli test
 
 The BLADE-cli is currently only verified to execute and not crash.
