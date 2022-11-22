@@ -45,9 +45,9 @@ telInfo.antenna_position_frame = "xyz"
 telInfo.antenna_names = [@sprintf("ant%03d", i) for i in 0:dimInfo.nants-1]
 telInfo.antenna_numbers = collect(0:dimInfo.nants-1)
 telInfo.antenna_diameters = collect(6 for i in 1:dimInfo.nants)
-telInfo.latitude = (34*60 + 04) * 60 + 43.0
-telInfo.longitude = (-107*60 + 37)*60 + 4.0
-telInfo.altitude = 2124
+telInfo.latitude = 34.07881373419933
+telInfo.longitude = -107.61833419041476 
+telInfo.altitude = 2114.8787108091637
 telInfo.telescope_name = "Unknown"
 
 recipe = BeamformerRecipe(
