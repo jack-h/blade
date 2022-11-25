@@ -1,12 +1,7 @@
-import sys
-sys.path.insert(0, '/home/sonata/dev/blade/build/python')
-
-import time
+import os, sys, re, argparse
 import numpy
-import argparse
 import pyproj
-from guppi import guppi # https://github.com/wfarah/guppi
-# from pysigproc import SigprocFile # 
+from guppi.guppi import Guppi # https://github.com/MydonSolutions/guppi/tree/write
 
 import astropy.constants as const
 from astropy.coordinates import ITRS, SkyCoord
@@ -222,24 +217,16 @@ def beamform(
     phasors: numpy.ndarray, # [Beam, Aspect, Frequency, Time=1, Polarization]
     lastBeamIncoherent = False
 ):
-    outputDims = (
-        phasors.shape[0],
-        *datablock.shape[1:]
-    )
-    output = numpy.zeros(outputDims, dtype=numpy.complex64)
-
-    coherentBeams = phasors.shape[0]
-    if lastBeamIncoherent:
-        coherentBeams -= 1
-
     # Beamform with Numpy.
-    for ibeam in range(coherentBeams):
-        phased = numpy.multiply(datablock, phasors[ibeam][..., :])
-        output[ibeam] = phased.sum(axis=0)
+    output = numpy.multiply(datablock, phasors) 
+    
     if lastBeamIncoherent:
-        phased = numpy.multiply(datablock, phasors[-1][..., :])
-        phased = (phased.real * phased.real) + (phased.imag * phased.imag)
-        output[-1] = numpy.sqrt(phased.sum(axis=0))
+        output[-1] = output[-1].real**2 + output[-1].imag**2
+
+    output = output.sum(axis=1) # sum across antenna, collapsing that dimension
+
+    if lastBeamIncoherent:
+        output[-1] = numpy.sqrt(output[-1])
     return output
 
 
@@ -282,10 +269,15 @@ if __name__ == "__main__":
     parser.add_argument('guppi', type=str)
 
     parser.add_argument('-u', '--upchannelization-rate', type=int, default=1,)
+    parser.add_argument('-o', '--output-directory', type=str, default=None,)
 
     args = parser.parse_args()
     bfr5 = h5py.File(args.bfr5, 'r')
-    gfile = guppi.Guppi(args.guppi)
+    gfile = Guppi(args.guppi)
+
+    guppi_stem = re.match(r"(.*)\.\d{4}.raw", os.path.basename(args.guppi)).group(1)
+    if args.output_directory is None:
+        args.output_directory = os.path.dirname(args.guppi)
     
     datablockDims = (
         bfr5['diminfo']['nants'][()],
@@ -355,6 +347,7 @@ if __name__ == "__main__":
     hdr, data = gfile.read_next_block()
     block_index = 1
     block_times_index = 0
+    file_open_mode = 'wb'
     while True:
         if hdr is None:
             break
@@ -373,10 +366,21 @@ if __name__ == "__main__":
             )
         except:
             pass
-        beamform(
+        beams = beamform(
             upchan_data,
             phasorCoeffs[:, :, :, block_times_index:block_times_index+1, :]
         )
-
+        
+        hdr["DATATYPE"] = "FLOAT"
+        hdr["TBIN"] *= args.upchannelization_rate
+        hdr["CHAN_BW"] /= args.upchannelization_rate
+        for beam in range(beams.shape[0]):
+            Guppi.write_to_file(
+                os.path.join(args.output_directory, f"{guppi_stem}-beam{beam:03d}.0000.raw"),
+                hdr,
+                beams[beam:beam+1, ...].astype(numpy.complex64),
+                file_open_mode=file_open_mode
+            )
+        file_open_mode = 'ab'
         hdr, data = gfile.read_next_block()
         block_index += 1

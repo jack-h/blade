@@ -1,4 +1,4 @@
-# Installation
+# Compilation
 
 - Get meson, specifically: `pip install meson==0.61.3`.
   This avoids an issue in compiling capnprot for seticore, that occurs with v0.64.0.
@@ -7,7 +7,19 @@
 
 - Pull all submodules (recursively): `git submodule update --recursive --init`
 
-- Setup the build folder: `CXX=g++-10 meson build`
+- Setup the build folder: `CXX=g++-10 meson build -Dseticore:werror=false && cd build`
+
+- Compile: `ninja`
+
+# Python Beamforming for Comparison
+
+Beamform in Python (the output is in the same directory of the raw file and suffixed with -beam{:04d}.0000.raw):
+
+`./tests/apps/blade-cli/beamform.py synthetic_test_rand.bfr5 synthetic_test_rand.0000.raw -u 1`
+
+Compare in Julia:
+
+`./tests/apps/blade-cli/compare_raw.jl synthetic_test_rand_bladeout.0000.raw synthetic_test_rand-beam000.0000.raw `
 
 # Manual BLADE-cli test
 
