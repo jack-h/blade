@@ -4,7 +4,7 @@ import pyproj
 from guppi.guppi import Guppi # https://github.com/MydonSolutions/guppi/tree/write
 
 import astropy.constants as const
-from astropy.coordinates import ITRS, SkyCoord
+from astropy.coordinates import ITRS, SkyCoord, Angle
 from astropy.time import Time
 import astropy.units as u
 
@@ -314,10 +314,18 @@ if __name__ == "__main__":
             bfr5['telinfo']['latitude'][()],
             bfr5['telinfo']['altitude'][()],
         )
-        telescopeCenterXyz = transformer.transform(*lla,radians=False)
+        telescopeCenterXyz = transformer.transform(*lla)
         print(f"Subtracting Telescope center from ECEF antenna-positions: {telescopeCenterXyz}")
         for i in range(antennaPositions.shape[0]):
             antennaPositions[i, :] -= telescopeCenterXyz
+
+    print("ECEF Antenna Positions (X, Y, Z):")
+    for i in range(antennaPositions.shape[0]):
+        print(f"\t{i}: ({antennaPositions[i, 0]}, {antennaPositions[i, 1]}, {antennaPositions[i, 2]})")
+
+    print("Beam Coordinates (RA, DEC):")
+    for i in range(beamCoordinates.shape[0]):
+        print(f"\t{i}: ({', '.join(beamCoordinates[i].to_string(unit='rad').split(' '))})")
 
     frequencies = bfr5['obsinfo']['freq_array'][:] * 1e9
     times = bfr5['delayinfo']['time_array'][:]
