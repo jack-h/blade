@@ -154,6 +154,8 @@ function generateTestInputs(
 	n_pols::Integer = 2,
 	n_bits::Integer = 8,
 	n_beam::Integer = 1,
+
+	n_blocks::Integer = 32,
 )
 
 	recipe = createBeamformerRecipe(
@@ -189,7 +191,7 @@ function generateTestInputs(
 	stempath = joinpath(directory, title)
 	to_hdf5(@sprintf("%s.bfr5", stempath), recipe)
 	open(@sprintf("%s.0000.raw", stempath), "w") do fio
-		for i in 1:32
+		for i in 1:n_blocks
 			write(fio, header)
 			if iterateRawcallback && i > 1
 				rawcallback(header, data)

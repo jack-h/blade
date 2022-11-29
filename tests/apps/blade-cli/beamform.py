@@ -4,9 +4,10 @@ import pyproj
 from guppi.guppi import Guppi # https://github.com/MydonSolutions/guppi/tree/write
 
 import astropy.constants as const
-from astropy.coordinates import ITRS, SkyCoord, Angle
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
-import astropy.units as u
+
+import erfa
 
 def upchannelize_frequencies(frequencies, rate):
     fine_frequencies = numpy.zeros((len(frequencies), rate), dtype=numpy.float64)
@@ -85,63 +86,93 @@ def upchannelize(
 
     return output
 
-
-def _compute_uvw(ts, source, ant_coordinates, ref_coordinates):
+def _compute_ha_dec_with_astrom(astrom, radec):
     """Computes UVW antenna coordinates with respect to reference
+    Args:
+        radec: SkyCoord
+    
+    Returns:
+        (ra=Hour-Angle, dec=Declination, unit='rad')
+    """
+    ri, di = erfa.atciq(
+        radec.ra.rad, radec.dec.rad,
+        0, 0, 0, 0,
+        astrom
+    )
+    aob, zob, ha, dec, rob = erfa.atioq(
+        ri, di,
+        astrom
+    )
+    return ha, dec
 
-    Copyright 2021 Daniel Estevez <daniel@destevez.net>
+def _compute_uvw(ts, source, ant_coordinates, lla, dut1=0.0):
+    """Computes UVW antenna coordinates with respect to reference
 
     Args:
         ts: array of Times to compute the coordinates
         source: source SkyCoord
-        ant_coordinates: antenna ECEF coordinates.
-            This is indexed as (antenna_number, xyz)
-        ref_coordinates: phasing reference centre coordinates.
-            This is indexed as (xyz)
+        ant_coordinates: numpy.ndarray
+            Antenna ECEF coordinates. This is indexed as (antenna_number, xyz)
+        lla: tuple Reference Coordinates (radians)
+            Longitude, Latitude, Altitude. The antenna_coordinates must have
+            this component in them.
 
     Returns:
-        The UVW coordinates in metres of each of the baselines formed
-        between each of the antennas and the phasing reference. This
-        is indexed as (time, antenna_number, uvw)
+        The UVW coordinates in metres of each antenna. This
+        is indexed as (antenna_number, uvw)
     """
-    baselines_itrs = ant_coordinates - ref_coordinates
 
-    # Calculation of vector orthogonal to line-of-sight
-    # and pointing due north.
-    north_radec = [source.ra.deg, source.dec.deg + 90]
-    if north_radec[1] > 90:
-        north_radec[1] = 180 - north_radec[1]
-        north_radec[0] = 180 + north_radec[0]
-    north = SkyCoord(ra=north_radec[0]*u.deg, dec=north_radec[1]*u.deg)
+    # get valid eraASTROM instance
+    astrom, eo = erfa.apco13(
+        ts.jd, 0,
+        dut1,
+        *lla,
+        0, 0,
+        0, 0, 0, 0
+    )
+    ha_rad, dec_rad = _compute_ha_dec_with_astrom(astrom, source)
+    sin_long_minus_hangle = numpy.sin(lla[0]-ha_rad)
+    cos_long_minus_hangle = numpy.cos(lla[0]-ha_rad)
+    sin_declination = numpy.sin(dec_rad)
+    cos_declination = numpy.cos(dec_rad)
 
-    source_itrs = source.transform_to(ITRS(obstime=Time(ts))).cartesian
-    north_itrs = north.transform_to(ITRS(obstime=Time(ts))).cartesian
-    east_itrs = north_itrs.cross(source_itrs)
-
-    ww = baselines_itrs @ source_itrs.xyz.value
-    vv = baselines_itrs @ north_itrs.xyz.value
-    uu = baselines_itrs @ east_itrs.xyz.value
-    uvw = numpy.stack((uu.T, vv.T, ww.T), axis=-1)
-
-    return uvw
-
+    uvws = numpy.zeros(ant_coordinates.shape, dtype=numpy.float64)
+    
+    for ant in range(ant_coordinates.shape[0]):
+        # RotZ(long-ha) anti-clockwise
+        x = cos_long_minus_hangle*ant_coordinates[ant, 0] - (-sin_long_minus_hangle)*ant_coordinates[ant, 1]
+        y = (-sin_long_minus_hangle)*ant_coordinates[ant, 0] + cos_long_minus_hangle*ant_coordinates[ant, 1]
+        z = ant_coordinates[ant, 2]
+        
+        # RotY(declination) clockwise
+        x_ = x
+        x = cos_declination*x_ + sin_declination*z
+        z = -sin_declination*x_ + cos_declination*z
+        
+        # Permute (WUV) to (UVW)
+        uvws[ant, 0] = y
+        uvws[ant, 1] = z
+        uvws[ant, 2] = x
+        
+    return uvws
 
 def _create_delay_phasors(delay, frequencies):
-    return numpy.exp(-1j*2*numpy.pi*delay*frequencies)
+    return -1.0j*2.0*numpy.pi*delay*frequencies
 
 
 def _get_fringe_rate(delay, fringeFrequency):
-    return numpy.exp(-1j*2*numpy.pi*delay * fringeFrequency)
+    return -1.0j*2.0*numpy.pi*delay*fringeFrequency
 
 
 def phasors(
     antennaPositions: numpy.ndarray, # [Antenna, XYZ]
-    boresightCoordinate: SkyCoord, # degrees
-    beamCoordinates: 'list[SkyCoord]', #  degrees
+    boresightCoordinate: SkyCoord, # ra-dec
+    beamCoordinates: 'list[SkyCoord]', #  ra-dec
     times: numpy.ndarray, # [unix]
     frequencies: numpy.ndarray, # [channel-frequencies] Hz
     calibrationCoefficients: numpy.ndarray, # [Frequency-channel, Polarization, Antenna]
-    referenceAntennaIndex: int = 0
+    lla: tuple, # Longitude, Latitude, Altitude (radians)
+    referenceAntennaIndex: int = 0,
 ):
     """
     Return
@@ -166,8 +197,8 @@ def phasors(
     delays = numpy.zeros(
         (
             times.shape[0],
-            antennaPositions.shape[0],
             beamCoordinates.shape[0],
+            antennaPositions.shape[0],
         ),
         dtype=numpy.float64
     )
@@ -178,8 +209,9 @@ def phasors(
             ts,
             boresightCoordinate, 
             antennaPositions,
-            antennaPositions[referenceAntennaIndex],
+            lla
         )
+        boresightUvw -= boresightUvw[referenceAntennaIndex:referenceAntennaIndex+1, :]
         for b in range(phasorDims[0]):
             # These UVWs are centred at the reference antenna, 
             # i.e. UVW_irefant = [0, 0, 0]
@@ -187,28 +219,26 @@ def phasors(
                 ts,
                 beamCoordinates[b], 
                 antennaPositions,
-                antennaPositions[referenceAntennaIndex],
+                lla
             )
+            beamUvw -= beamUvw[referenceAntennaIndex:referenceAntennaIndex+1, :]
 
-            antennaBeamDelays = (beamUvw[:,2] - boresightUvw[:,2]) / const.c.value
-            delays[t, :, b] = antennaBeamDelays
-            for a, delay in enumerate(antennaBeamDelays):
-                phasors[b, a, :, t, 0] = _create_delay_phasors(
+            delays[t, b, :] = (beamUvw[:,2] - boresightUvw[:,2]) / const.c.value
+            for a, delay in enumerate(delays[t, b, :]):
+                delay_factors = _create_delay_phasors(
                     delay,
-                    frequencies
+                    frequencies - frequencies[0]
                 )
-                phasors[b, a, :, t, 0] *= _get_fringe_rate(
+                fringe_factor = _get_fringe_rate(
                     delay,
                     frequencies[0]
                 )
+
+                phasor = numpy.exp(delay_factors+fringe_factor)
                 for p in range(phasorDims[-1]):
-                    # Phasor is the same for each polarization, until the 
-                    # calibration coefficent makes it different.
-                    # Reuse phasor of pol0, changing it last
-                    revP = phasorDims[-1]-1-p
                     for c in range(calibrationCoeffFreqRatio):
                         fine_slice = range(c, frequencies.shape[0], calibrationCoeffFreqRatio)
-                        phasors[b, a, fine_slice, t, revP] = phasors[b, a, fine_slice, t, 0] * calibrationCoefficients[:, revP, a]
+                        phasors[b, a, fine_slice, t, p] = phasor[fine_slice] * calibrationCoefficients[:, p, a]
     return phasors, delays
 
 
@@ -327,6 +357,7 @@ if __name__ == "__main__":
     for i in range(beamCoordinates.shape[0]):
         print(f"\t{i}: ({', '.join(beamCoordinates[i].to_string(unit='rad').split(' '))})")
 
+
     frequencies = bfr5['obsinfo']['freq_array'][:] * 1e9
     times = bfr5['delayinfo']['time_array'][:]
 
@@ -342,13 +373,20 @@ if __name__ == "__main__":
         times, # [unix]
         upchan_frequencies, # [channel-frequencies] Hz
         bfr5['calinfo']['cal_all'][:], # [Antenna, Frequency-channel, Polarization]
-        referenceAntennaIndex = 0
+        referenceAntennaIndex = 0,
+        lla = (
+            numpy.pi * bfr5['telinfo']['longitude'][()] / 180.0,
+            numpy.pi * bfr5['telinfo']['latitude'][()] / 180.0,
+            bfr5['telinfo']['altitude'][()],
+        )
     )
 
-    recipe_delays_agreeable = bfr5['delayinfo']['delays'][:] == delays # should probably use isclose
+    bfr5_delays = bfr5['delayinfo']['delays'][:]
+    recipe_delays_agreeable = numpy.isclose(bfr5_delays, delays, atol=0.0001)
     if not recipe_delays_agreeable.all():
         print(f"The delays in the provided recipe file do not match the calculated delays:\n{recipe_delays_agreeable}")
         print(f"Using calculated delays:\n{delays}")
+        print(f"Not given delays:\n{bfr5_delays}")
     else:
         print("The recipe file's delays match the calculated delays.")
 

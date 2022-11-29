@@ -15,19 +15,28 @@ function mapToFloat(value::Complex{<:Integer}, type::Type)
   return complex(mapToFloat(real(value), real(type)), mapToFloat(imag(value), real(type)))
 end
 
-function compare(i_data, o_data, atol=0.01)::Result
+function compare(i_data, o_data, rtol=0.01)::Result
+  correct_count = 0
+  count = 0
   if size(i_data) != size(o_data)
     return Result(@sprintf("Shape mismatch: %s != %s", size(i_data), size(o_data)), false)
   end
   dims_correct = Array{Bool}(undef, size(i_data)[2:end])
   for i in CartesianIndices(dims_correct)
-    dims_correct[i] = all(isapprox.(real(i_data[:, i]), real(o_data[:, i]), atol=atol)) && all(isapprox.(imag(i_data[:, i]), imag(o_data[:, i]), atol=atol))
+    dims_correct[i] = all(isapprox.(real(i_data[:, i]), real(o_data[:, i]), rtol=rtol)) && all(isapprox.(imag(i_data[:, i]), imag(o_data[:, i]), rtol=rtol))
     if !dims_correct[i]
-      println(Result(@sprintf("Pol data mismatch @ %s: %s != %s\n\t(atol: %s)", i, i_data[:, i], o_data[:, i], i_data[:, i] - o_data[:, i]), false))
+      if count - correct_count < 100
+        println(@sprintf("Polarization data mismatch @ %s: %s != %s\n\t(diff: %s)", i, i_data[:, i], o_data[:, i], i_data[:, i] - o_data[:, i]))
+      elseif count - correct_count == 100
+        println("... omitting more mismatch printouts as 100 have been displayed.")
+      end
+    else
+      correct_count += 1
     end
+    count += 1
   end
 
-  Result(nothing, all(dims_correct))
+  Result(@sprintf("%03.06f%% correct (%d/%d)", correct_count/count*100, correct_count, count), all(dims_correct))
 end
 
 i_grheader = GuppiRaw.Header()
@@ -47,9 +56,9 @@ o_fio = open(ARGS[2], "r")
   o_data = Array(o_grheader)
   read!(o_fio, o_data)
 
-  atol = 0.015
+  rtol = 0.01
 
-  println(compare(i_data, o_data, atol))
+  println("\n", compare(i_data, o_data, rtol))
 
 close(i_fio)
 close(o_fio)
