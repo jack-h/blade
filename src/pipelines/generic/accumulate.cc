@@ -75,7 +75,6 @@ const Result Accumulate<MT, DT, IT>::accumulate(const ArrayTensor<Device::CUDA, 
         }
     } else {
         if (this->config.reconstituteBatchedDimensions) {
-            // TODO test this
             const auto numberOfInputFrequencyChannelBatches = this->getAccumulatorNumberOfSteps();
             const auto frequencyChannelBatchIndex = this->getCurrentAccumulatorStep();
             auto accumulationBufferBatchSegment = ArrayTensor<DT, IT>(accumulationBuffer.data() + frequencyChannelBatchIndex*stepInputDims.size(), stepInputDims);

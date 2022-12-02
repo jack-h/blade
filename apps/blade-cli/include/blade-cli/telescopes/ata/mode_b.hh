@@ -19,7 +19,10 @@ inline const Result ModeB(const Config& config) {
     // Define some types.
     using Reader = Pipelines::Generic::FileReader<IT>;
     using Compute = Pipelines::ATA::ModeB<OT>;
-    using Writer = Pipelines::Generic::Accumulate<Modules::Guppi::Writer<OT>, Device::CPU, OT>;
+    using GuppiWriter = Pipelines::Generic::Accumulate<Modules::Guppi::Writer<OT>, Device::CPU, OT>;
+    std::unique_ptr<Runner<GuppiWriter>> guppiWriterRunner;
+    using FilterbankWriter = Pipelines::Generic::Accumulate<Modules::Filterbank::Writer<OT>, Device::CPU, OT>;
+    std::unique_ptr<Runner<FilterbankWriter>> filterbankWriterRunner;
 
     // Instantiate reader pipeline and runner.
 
@@ -58,9 +61,9 @@ inline const Result ModeB(const Config& config) {
 
         .beamformerIncoherentBeam = false,
 
-        .detectorEnable = false,
-        // .detectorIntegrationSize,
-        // .detectorNumberOfOutputPolarizations,
+        .detectorEnable = config.outputType == TypeId::F16 || config.outputType == TypeId::F32,
+        .detectorIntegrationSize = 1,
+        .detectorNumberOfOutputPolarizations = 1,
 
         // TODO: Review this calculation.
         .castBlockSize = 32,
@@ -71,29 +74,59 @@ inline const Result ModeB(const Config& config) {
     };
 
     auto computeRunner = Runner<Compute>::New(config.numberOfWorkers, computeConfig, false);
+    
+    if constexpr (std::is_same<OT, CF32>::value || std::is_same<OT, CF16>::value) {
+        typename GuppiWriter::Config writerConfig = {
+            .moduleConfig = {
+                .filepath = config.outputFile,
+                .directio = true,
+                .inputFrequencyBatches = 1, // Accumulate pipeline set to reconstituteBatchedDimensions.
+            },
+            .inputDimensions = computeRunner->getWorker().getOutputBuffer().dims(),
+            .reconstituteBatchedDimensions = true,
+            .accumulateRate = readerTotalOutputDims.numberOfFrequencyChannels() / computeConfig.inputDimensions.numberOfFrequencyChannels(),
+        };
 
-    // Instantiate writer pipeline and runner.
+        guppiWriterRunner = Runner<GuppiWriter>::New(1, writerConfig, false);
+        auto& writer = guppiWriterRunner->getWorker();
 
-    typename Writer::Config writerConfig = {
-        .moduleConfig = {
-            .filepath = config.outputFile,
-            .directio = true,
-            .inputFrequencyBatches = readerTotalOutputDims.numberOfFrequencyChannels() / computeConfig.inputDimensions.numberOfFrequencyChannels(),
-        },
-        .inputDimensions = computeRunner->getWorker().getOutputBuffer().dims(),
-        .accumulateRate = readerTotalOutputDims.numberOfFrequencyChannels() / computeConfig.inputDimensions.numberOfFrequencyChannels(),
-    };
+        // Append information to the Accumulator's GUPPI header.
 
-    auto writerRunner = Runner<Writer>::New(1, writerConfig, false);
-    auto& writer = writerRunner->getWorker();
+        writer.getModule()->headerPut("OBSFREQ", reader.getObservationFrequency());
+        writer.getModule()->headerPut("OBSBW", reader.getChannelBandwidth() * 
+                                readerTotalOutputDims.numberOfFrequencyChannels());
+        writer.getModule()->headerPut("TBIN", config.preBeamformerChannelizerRate / reader.getChannelBandwidth());
+        writer.getModule()->headerPut("PKTIDX", 0);
+    }
+    else if constexpr (std::is_same<OT, F32>::value || std::is_same<OT, F16>::value) {
+        typename FilterbankWriter::Config writerConfig = {
+            .moduleConfig = {
+                .filepath = config.outputFile,
+                
+                .machineId = 0,
+                .telescopeName = reader.getTelescopeName(),
+                .baryCentric = 1,
+                .pulsarCentric = 1,
+                .sourceCoordinate = reader.getBoresightCoordinate(),
+                .azimuthStart = reader.getAzimuthAngle(),
+                .zenithStart = reader.getZenithAngle(),
+                .observationFrequencyHz = reader.getObservationFrequency(),
+                .observationBandwidthHz = -1*reader.getTotalBandwidth(), // Negated as frequencies are reversed
+                .julianDateStart = reader.getJulianDateOfLastReadBlock(),
+                .numberOfIfChannels = (I32) computeRunner->getWorker().getOutputBuffer().dims().numberOfPolarizations(),
+                .sourceName = reader.getSourceName(),
+                .sourceDataFilename = config.inputGuppiFile,
 
-    // Append information to the Accumulator's GUPPI header.
+                .numberOfInputFrequencyChannelBatches = 1, // Accumulate pipeline set to reconstituteBatchedDimensions.
+            },
+            .inputDimensions = computeRunner->getWorker().getOutputBuffer().dims(),
+            .transposeATPF = true,
+            .reconstituteBatchedDimensions = true,
+            .accumulateRate = readerTotalOutputDims.numberOfFrequencyChannels() / computeConfig.inputDimensions.numberOfFrequencyChannels(),
+        };
 
-    writer.getModule()->headerPut("OBSFREQ", reader.getObservationFrequency());
-    writer.getModule()->headerPut("OBSBW", reader.getChannelBandwidth() * 
-                              readerTotalOutputDims.numberOfFrequencyChannels());
-    writer.getModule()->headerPut("TBIN", config.preBeamformerChannelizerRate / reader.getChannelBandwidth());
-    writer.getModule()->headerPut("PKTIDX", 0);
+        filterbankWriterRunner = Runner<FilterbankWriter>::New(1, writerConfig, false);
+    }
 
     indicators::ProgressBar bar{
         option::BarWidth{100},
@@ -133,7 +166,12 @@ inline const Result ModeB(const Config& config) {
 
         computeRunner->enqueue([&](auto& worker) {
             // Check if next runner has free slot.
-            Plan::Available(writerRunner);
+            if constexpr (std::is_same<OT, CF32>::value || std::is_same<OT, CF16>::value) {
+                Plan::Available(guppiWriterRunner);
+            }
+            else if constexpr (std::is_same<OT, F32>::value || std::is_same<OT, F16>::value) {
+                Plan::Available(filterbankWriterRunner);
+            }
 
             // Try dequeue job from last runner. If unlucky, return.
             Plan::Dequeue(readerRunner, &callbackStep);
@@ -146,35 +184,66 @@ inline const Result ModeB(const Config& config) {
             Plan::Compute(worker);
 
             // Concatenate output data inside writer pipeline.
-            Plan::Accumulate(writerRunner, computeRunner,
-                             worker.getOutputBuffer());
-
-            return callbackStep;
-        });
-
-        writerRunner->enqueue([&](auto& worker){
-            // Try dequeue job from last runner. If unlucky, return.
-            Plan::Dequeue(computeRunner, &callbackStep);
-
-            // If accumulation complete, write data to disk.
-            Plan::Compute(worker);
-
-            return callbackStep;
-        });
-
-        // Try to dequeue job from writer runner.
-        if (writerRunner->dequeue(&callbackStep)) {
-            if ((callbackStep + 1) == reader.getNumberOfSteps()) {
-                break;
+            if constexpr (std::is_same<OT, CF32>::value || std::is_same<OT, CF16>::value) {
+                Plan::Accumulate(guppiWriterRunner, computeRunner,
+                                worker.getOutputBuffer());
             }
-        }    
+            else if constexpr (std::is_same<OT, F32>::value || std::is_same<OT, F16>::value) {
+                Plan::Accumulate(filterbankWriterRunner, computeRunner,
+                                worker.getOutputBuffer());
+            }
+
+            return callbackStep;
+        });
+
+        if constexpr (std::is_same<OT, CF32>::value || std::is_same<OT, CF16>::value) {
+            guppiWriterRunner->enqueue([&](auto& worker){
+                // Try dequeue job from last runner. If unlucky, return.
+                Plan::Dequeue(computeRunner, &callbackStep);
+
+                // If accumulation complete, write data to disk.
+                Plan::Compute(worker);
+
+                return callbackStep;
+            });
+
+            // Try to dequeue job from writer runner.
+            if (guppiWriterRunner->dequeue(&callbackStep)) {
+                if ((callbackStep + 1) == reader.getNumberOfSteps()) {
+                    break;
+                }
+            }    
+        }
+        else if constexpr (std::is_same<OT, F32>::value || std::is_same<OT, F16>::value) {
+            filterbankWriterRunner->enqueue([&](auto& worker){
+                // Try dequeue job from last runner. If unlucky, return.
+                Plan::Dequeue(computeRunner, &callbackStep);
+
+                // If accumulation complete, write data to disk.
+                Plan::Compute(worker);
+
+                return callbackStep;
+            });
+
+            // Try to dequeue job from writer runner.
+            if (filterbankWriterRunner->dequeue(&callbackStep)) {
+                if ((callbackStep + 1) == reader.getNumberOfSteps()) {
+                    break;
+                }
+            }
+        }
     }
 
     // Gracefully destroy runners. 
 
     readerRunner.reset();
     computeRunner.reset();
-    writerRunner.reset();
+    if constexpr (std::is_same<OT, CF32>::value || std::is_same<OT, CF16>::value) {
+        guppiWriterRunner.reset();
+    }
+    else if constexpr (std::is_same<OT, F32>::value || std::is_same<OT, F16>::value) {
+        filterbankWriterRunner.reset();
+    }
 
     return Result::SUCCESS;
 }

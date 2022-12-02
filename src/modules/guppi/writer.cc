@@ -38,6 +38,7 @@ Writer<IT>::Writer(const Config& config, const Input& input)
     // Print configuration information.
     BL_INFO("Type: {} -> {}", TypeInfo<IT>::name, "N/A");
     BL_INFO("Dimensions [A, F, T, P]: {} -> {}", getInputBuffer().dims(), "N/A");
+    BL_INFO("Frequency Batches: {}", this->config.inputFrequencyBatches);
     BL_INFO("Output File Path: {}", config.filepath);
     BL_INFO("Direct I/O: {}", config.directio ? "YES" : "NO");
 }
