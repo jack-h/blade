@@ -104,7 +104,9 @@ const Result VLA<OT>::preprocess(const cudaStream_t& stream) {
             const U64 antennaPhasorOffset = (a *
                                        this->config.numberOfFrequencyChannels *
                                        this->config.numberOfPolarizations);
-            const U64 antennaCoeffOffset = antennaPhasorOffset / this->config.preBeamformerChannelizerRate;
+            const U64 antennaCoeffOffset = (a *
+                                       this->antennaCoefficients.dims().numberOfFrequencyChannels() *
+                                       this->config.numberOfPolarizations);
 
             const F64 delay = this->beamAntennaDelays[currentDelayTimeOffset + b*delayBeamStride + a];
 

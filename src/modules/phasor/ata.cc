@@ -194,7 +194,9 @@ const Result ATA<OT>::preprocess(const cudaStream_t& stream) {
             const U64 antennaPhasorOffset = (a *
                                        this->config.numberOfFrequencyChannels *
                                        this->config.numberOfPolarizations);
-            const U64 antennaCoeffOffset = antennaPhasorOffset / this->config.preBeamformerChannelizerRate;
+            const U64 antennaCoeffOffset = (a *
+                                       this->antennaCoefficients.dims().numberOfFrequencyChannels() *
+                                       this->config.numberOfPolarizations);
 
             const F64 delay = this->output.delays[(b * this->config.numberOfAntennas) + a];
             const F64 fringe = this->config.observationFrequencyHz - (this->config.totalBandwidthHz / 2.0);
