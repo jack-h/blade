@@ -15,20 +15,23 @@ function mapToFloat(value::Complex{<:Integer}, type::Type)
   return complex(mapToFloat(real(value), real(type)), mapToFloat(imag(value), real(type)))
 end
 
-function compare(i_data, o_data, rtol=0.01)::Result
+function compare(i_data, o_data, atol=0.01)::Result
   correct_count = 0
   count = 0
-  if size(i_data) != size(o_data)
+  length_ratio = length(i_data) / length(o_data)
+  time_ratio = size(i_data)[2] / size(o_data)[2]
+  if length_ratio != 1 && !(length_ratio == time_ratio )
     return Result(@sprintf("Shape mismatch: %s != %s", size(i_data), size(o_data)), false)
   end
-  dims_correct = Array{Bool}(undef, size(i_data)[2:end])
-  for i in CartesianIndices(dims_correct)
-    dims_correct[i] = all(isapprox.(real(i_data[:, i]), real(o_data[:, i]), rtol=rtol)) && all(isapprox.(imag(i_data[:, i]), imag(o_data[:, i]), rtol=rtol))
-    if !dims_correct[i]
+  dims = length(i_data) >= length(o_data) ? size(i_data) : size(o_data)
+
+  for i in CartesianIndices(size(i_data)[2:end])
+    dims_correct = all(isapprox.(real(i_data[:, i]), real(o_data[:, i]), atol=atol)) && all(isapprox.(imag(i_data[:, i]), imag(o_data[:, i]), atol=atol))
+    if !dims_correct
       if count - correct_count < 100
         println(@sprintf("Polarization data mismatch @ %s: %s != %s\n\t(diff: %s)", i, i_data[:, i], o_data[:, i], i_data[:, i] - o_data[:, i]))
       elseif count - correct_count == 100
-        println("... omitting more mismatch printouts as 100 have been displayed.")
+        println("... That's 100 mismatch-printouts, omitting the rest.")
       end
     else
       correct_count += 1
@@ -36,7 +39,7 @@ function compare(i_data, o_data, rtol=0.01)::Result
     count += 1
   end
 
-  Result(@sprintf("%03.06f%% correct (%d/%d)", correct_count/count*100, correct_count, count), all(dims_correct))
+  Result(@sprintf("%03.06f%% correct (%d/%d)", correct_count/count*100, correct_count, count), correct_count == count)
 end
 
 i_grheader = GuppiRaw.Header()
@@ -56,9 +59,9 @@ o_fio = open(ARGS[2], "r")
   o_data = Array(o_grheader)
   read!(o_fio, o_data)
 
-  rtol = 0.01
+  atol = 0.001
 
-  println("\n", compare(i_data, o_data, rtol))
+  println("\n", compare(i_data, o_data, atol))
 
 close(i_fio)
 close(o_fio)
