@@ -22,7 +22,7 @@ rsync -avW rsync://blpd18.ssl.berkeley.edu/datax/guppi_59856_57567_103605834_mar
 rsync -avW rsync://blpd18.ssl.berkeley.edu/datax/guppi_59856_58696_103674743_mars_off_0001.0000.raw .
 rsync -avW rsync://blpd18.ssl.berkeley.edu/datax/guppi_59856_58696_103674743_mars_off_0001.bfr5 .
 
-These BFR5 files were produced by `bfr5_gen.jl` from this [repo](https://github.com/MydonSolutions/ata_bfr5_genie) (some local changes were made to produce the appropriate beam coordinates for the _off dataset).
+These BFR5 files were produced by `bfr5_gen.jl` from this [repo](https://github.com/MydonSolutions/ata_bfr5_genie) (commit 2ec4296; some local changes were made to produce the appropriate beam coordinates for the _off dataset).
 
 Then beamform based on a RAW-BFR5 input pair:
 
